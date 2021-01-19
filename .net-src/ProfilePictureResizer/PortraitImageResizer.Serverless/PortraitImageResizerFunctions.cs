@@ -31,7 +31,6 @@ namespace PortraitImageResizer.Serverless
             // /blobServices/default/containers/portraits/blobs/raw-images
 
             StorageBlobCreatedEventData eventData = JsonConvert.DeserializeObject<StorageBlobCreatedEventData>(receivedEvent.Data.ToString());
-            log.LogInformation(JsonConvert.SerializeObject(eventData));
 
             // todo: run our code on the picture
             PortraitGenerator generator = new PortraitGenerator(context);
@@ -46,8 +45,10 @@ namespace PortraitImageResizer.Serverless
                 var container = blobClient.GetContainerReference("portraits");
 
 
-                var blob = container.GetBlockBlobReference($"generated/{Path.GetFileName(eventData.Url)}");
+                string filename = Path.GetFileName(eventData.Url);
+                var blob = container.GetBlockBlobReference($"generated/{filename}");
                 await blob.UploadFromStreamAsync(portrait);
+                log.LogInformation($"Generated portrait for '{filename}'");
             }
         }
     }
