@@ -6,26 +6,39 @@ using Microsoft.Azure.WebJobs.Host;
 using Microsoft.Azure.EventGrid.Models;
 using Microsoft.Azure.WebJobs.Extensions.EventGrid;
 using Microsoft.Extensions.Logging;
+using System.IO;
+using Newtonsoft.Json;
+using Microsoft.WindowsAzure.Storage;
+using System.Threading.Tasks;
 
 namespace PortraitImageResizer.Serverless
 {
     public static class PortraitImageResizerFunctions
     {
         [FunctionName(nameof(HandleNewPictures))]
-        public static void HandleNewPictures([EventGridTrigger]EventGridEvent eventGridEvent, ILogger log)
+        public static async Task HandleNewPictures([EventGridTrigger]EventGridEvent receivedEvent, 
+            [Blob("{data.Url}", FileAccess.Read, Connection = "PortraitStorageConnection")] Stream input,
+            ExecutionContext context,
+            ILogger log)
         {
-            // /blobServices/default/containers/portaits/raw-images/blobs/
-            // /blobServices/default/containers/portraits/blobs/raw-images
+            var eventData = JsonConvert.DeserializeObject<StorageBlobCreatedEventData>(receivedEvent.Data.ToString());
+            string classifierPath = Path.Combine(context.FunctionAppDirectory, "data/haarcascade_frontalface_default.xml");
 
+            PortraitGenerator generator = new PortraitGenerator(classifierPath);
+            Stream portrait = generator.GeneratePortrait(input);
 
-            log.LogInformation(eventGridEvent.Subject);
-            log.LogInformation(eventGridEvent.Data.ToString());
+            CloudStorageAccount storageAccount;
+            if(CloudStorageAccount.TryParse(Environment.GetEnvironmentVariable("PortraitStorageConnection"), out storageAccount))
+            {
+                var blobClient = storageAccount.CreateCloudBlobClient();
+                var container = blobClient.GetContainerReference("portraits");
 
-            // todo: read image raw data
+                string filename = Path.GetFileName(eventData.Url);
+                var blob = container.GetBlockBlobReference($"generated/{filename}");
 
-            // todo: run our code on the picture
-
-            // todo: save the new picture to a different folder
+                await blob.UploadFromStreamAsync(portrait);
+                log.LogInformation($"Generated portrait for '{filename}'");
+            }
         }
     }
 
